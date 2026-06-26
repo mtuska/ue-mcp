@@ -28,6 +28,7 @@
 #include "Retargeter/IKRetargeter.h"
 #include "AnimGraphNode_SequencePlayer.h"
 #include "AnimGraphNode_BlendSpacePlayer.h"
+#include "AnimGraphNode_StateResult.h"
 #include "Rig/IKRigDefinition.h"
 #include "RigEditor/IKRigController.h"
 #include "PoseSearch/PoseSearchDatabase.h"
@@ -537,6 +538,42 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetStateAnimation(const TSharedPtr<FJ
 	else
 	{
 		return MCPError(FString::Printf(TEXT("Unsupported animation asset type: %s"), *AnimAsset->GetClass()->GetName()));
+	}
+
+	// Wire the player's pose output to the state's result pose input so the state
+	// actually plays the asset. Previously set_state_animation only created and
+	// assigned the player; the pose link was left unconnected, leaving every state
+	// on ref pose. Also lay the player out left of the result (they otherwise
+	// overlap at (0,0)).
+	{
+		UAnimGraphNode_Base* PlayerNode = SeqPlayer
+			? static_cast<UAnimGraphNode_Base*>(SeqPlayer)
+			: static_cast<UAnimGraphNode_Base*>(BSPlayer);
+		UAnimGraphNode_StateResult* ResultNode = nullptr;
+		for (UEdGraphNode* Node : StateGraph->Nodes)
+		{
+			if ((ResultNode = Cast<UAnimGraphNode_StateResult>(Node)) != nullptr) break;
+		}
+		if (PlayerNode && ResultNode)
+		{
+			UEdGraphPin* PlayerPose = nullptr;
+			for (UEdGraphPin* P : PlayerNode->Pins)
+			{
+				if (P && P->Direction == EGPD_Output) { PlayerPose = P; break; }
+			}
+			UEdGraphPin* ResultIn = nullptr;
+			for (UEdGraphPin* P : ResultNode->Pins)
+			{
+				if (P && P->Direction == EGPD_Input) { ResultIn = P; break; }
+			}
+			if (PlayerPose && ResultIn && PlayerPose->LinkedTo.Num() == 0 && ResultIn->LinkedTo.Num() == 0)
+			{
+				PlayerPose->MakeLinkTo(ResultIn);
+			}
+			PlayerNode->NodePosX = ResultNode->NodePosX - 320;
+			PlayerNode->NodePosY = ResultNode->NodePosY;
+			StateGraph->NotifyGraphChanged();
+		}
 	}
 
 	CompileAndSave(AnimBP);
