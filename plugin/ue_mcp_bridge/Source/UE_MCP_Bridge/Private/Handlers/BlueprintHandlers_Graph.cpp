@@ -638,6 +638,30 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 		}
 	}
 
+	// Position the node. Honor explicit posX/posY; otherwise auto-cascade so
+	// programmatically-added nodes don't all pile up at (0,0) — a readable diagonal
+	// grid keyed off the pre-existing node count. Callers can run auto_layout
+	// afterward for a proper connection-flow arrangement.
+	{
+		double PosXIn = 0.0, PosYIn = 0.0;
+		const bool bHasX = Params->TryGetNumberField(TEXT("posX"), PosXIn);
+		const bool bHasY = Params->TryGetNumberField(TEXT("posY"), PosYIn);
+		if (bHasX || bHasY)
+		{
+			NewNode->NodePosX = bHasX ? FMath::RoundToInt(PosXIn) : NewNode->NodePosX;
+			NewNode->NodePosY = bHasY ? FMath::RoundToInt(PosYIn) : NewNode->NodePosY;
+		}
+		else
+		{
+			// TargetGraph->Nodes already includes NewNode, so subtract it to index
+			// by how many nodes existed before this one.
+			const int32 Prior = FMath::Max(0, TargetGraph->Nodes.Num() - 1);
+			const int32 kCols = 5, kColW = 320, kRowH = 200, kStagger = 28;
+			NewNode->NodePosX = (Prior % kCols) * kColW;
+			NewNode->NodePosY = (Prior / kCols) * kRowH + (Prior % kCols) * kStagger;
+		}
+	}
+
 	// #152: function graphs need the structural-modification signal for the
 	// skeleton class to pick up new nodes. MarkBlueprintAsStructurallyModified
 	// triggers that plus invalidates cached CDO info; CompileBlueprint alone
@@ -658,6 +682,8 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 	const FString NodeIdStr = NewNode->NodeGuid.ToString();
 	Result->SetStringField(TEXT("nodeId"), NodeIdStr);
 	Result->SetStringField(TEXT("title"), NewNode->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+	Result->SetNumberField(TEXT("posX"), NewNode->NodePosX);
+	Result->SetNumberField(TEXT("posY"), NewNode->NodePosY);
 
 	// Return pin info so the caller knows what to connect
 	TArray<TSharedPtr<FJsonValue>> PinsArray;
