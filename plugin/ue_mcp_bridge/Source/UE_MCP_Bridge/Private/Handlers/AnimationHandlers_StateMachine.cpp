@@ -28,6 +28,7 @@
 #include "Retargeter/IKRetargeter.h"
 #include "AnimGraphNode_SequencePlayer.h"
 #include "AnimGraphNode_BlendSpacePlayer.h"
+#include "AnimStateEntryNode.h"
 #include "Rig/IKRigDefinition.h"
 #include "RigEditor/IKRigController.h"
 #include "PoseSearch/PoseSearchDatabase.h"
@@ -335,6 +336,28 @@ TSharedPtr<FJsonValue> FAnimationHandlers::AddState(const TSharedPtr<FJsonObject
 	for (UEdGraphNode* N : SMGraph->Nodes) { if (Cast<UAnimStateNode>(N)) StateCount++; }
 	NewState->NodePosX = 300 + ((StateCount - 1) % 4) * 300;
 	NewState->NodePosY = ((StateCount - 1) / 4) * 200;
+
+	// Auto-wire the state-machine Entry node to the first state so the SM actually
+	// has a start state — without it the entry pin dangles and the SM plays nothing.
+	// Only connect when the entry is still unconnected, so we never steal an entry
+	// the caller already pointed at another state.
+	{
+		UAnimStateEntryNode* EntryNode = nullptr;
+		for (UEdGraphNode* N : SMGraph->Nodes)
+		{
+			if ((EntryNode = Cast<UAnimStateEntryNode>(N)) != nullptr) break;
+		}
+		if (EntryNode)
+		{
+			UEdGraphPin* EntryOut = EntryNode->GetOutputPin();
+			UEdGraphPin* StateIn = NewState->GetInputPin();
+			if (EntryOut && StateIn && EntryOut->LinkedTo.Num() == 0)
+			{
+				EntryOut->MakeLinkTo(StateIn);
+				SMGraph->NotifyGraphChanged();
+			}
+		}
+	}
 
 	CompileAndSave(AnimBP);
 
