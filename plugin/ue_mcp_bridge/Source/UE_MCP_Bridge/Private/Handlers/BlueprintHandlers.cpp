@@ -460,6 +460,23 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ListGraphs(const TSharedPtr<FJsonObje
 		GraphObj->SetStringField(TEXT("name"), Graph->GetName());
 		GraphObj->SetStringField(TEXT("class"), Graph->GetClass()->GetName());
 		GraphObj->SetNumberField(TEXT("nodeCount"), Graph->Nodes.Num());
+
+		// AnimBP transition rule graphs are ALL internally named "Transition", so
+		// the bare name can't target a specific one. FindGraph already resolves the
+		// "From -> To" form (and "Transition[i]"); surface those here so callers can
+		// actually discover the addressable name and edit a transition's condition.
+		if (UAnimStateTransitionNode* Trans = Cast<UAnimStateTransitionNode>(Graph->GetOuter()))
+		{
+			const FString PrevName = Trans->GetPreviousState() ? Trans->GetPreviousState()->GetStateName() : FString();
+			const FString NextName = Trans->GetNextState() ? Trans->GetNextState()->GetStateName() : FString();
+			if (!PrevName.IsEmpty() && !NextName.IsEmpty())
+			{
+				GraphObj->SetStringField(TEXT("fromState"), PrevName);
+				GraphObj->SetStringField(TEXT("toState"), NextName);
+				GraphObj->SetStringField(TEXT("addressableName"),
+					FString::Printf(TEXT("%s -> %s"), *PrevName, *NextName));
+			}
+		}
 		GraphsArray.Add(MakeShared<FJsonValueObject>(GraphObj));
 	}
 
